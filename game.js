@@ -631,30 +631,66 @@ function drawRoad() {
   const eL0 = project(-1.8, near), eR0 = project(1.8, near);
   const eL1 = project(-1.8, far), eR1 = project(1.8, far);
 
-  ctx.fillStyle = '#39415f';
+  // alas balast (kerikil)
+  ctx.fillStyle = '#7c7568';
   ctx.beginPath();
   ctx.moveTo(eL1.x, eL1.y); ctx.lineTo(eR1.x, eR1.y);
   ctx.lineTo(eR0.x, eR0.y); ctx.lineTo(eL0.x, eL0.y);
   ctx.closePath(); ctx.fill();
 
-  // tepi jalan
-  ctx.strokeStyle = '#f4f4f5';
-  ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(eL1.x, eL1.y); ctx.lineTo(eL0.x, eL0.y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(eR1.x, eR1.y); ctx.lineTo(eR0.x, eR0.y); ctx.stroke();
+  // bintik kerikil yang ikut bergulir
+  for (let i = 0; i < 110; i++) {
+    const r1 = (Math.sin(i * 12.9898) * 43758.5453) % 1;
+    const r2 = (Math.sin(i * 78.233) * 43758.5453) % 1;
+    const u = r1 - Math.floor(r1), v = r2 - Math.floor(r2);
+    const lx = u * 3.6 - 1.8;
+    const d = ((v * Z_MAX - G.dist) % Z_MAX + Z_MAX) % Z_MAX;
+    const p = project(lx, d);
+    if (p.k <= 0.02) continue;
+    const r = Math.max(1, p.k * H * 0.011);
+    ctx.fillStyle = u > 0.5 ? 'rgba(255,255,255,.16)' : 'rgba(0,0,0,.22)';
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, r * 1.5, r * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  // garis putus-putus pemisah lajur
-  [-0.6, 0.6].forEach(lx => {
-    const off = 6 - (G.dist % 6);
-    for (let d = off; d < Z_MAX; d += 6) {
-      const a = project(lx, d), b = project(lx, d + 3.1);
-      ctx.strokeStyle = 'rgba(255,255,255,.85)';
-      ctx.lineWidth = Math.max(1, a.k * 6);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    }
+  // bantalan rel (sleepers) tiap lajur
+  const sPeriod = 1.7;
+  const sOff = sPeriod - (G.dist % sPeriod);
+  for (let d = sOff - sPeriod; d < Z_MAX; d += sPeriod) {
+    const idx = Math.floor((d + G.dist) / sPeriod);
+    const col = idx % 2 ? '#5d4732' : '#4f3c2a';
+    [-1, 0, 1].forEach(lx => {
+      const a = project(lx - 0.44, d), b = project(lx + 0.44, d);
+      const c = project(lx + 0.44, d + 0.7), e = project(lx - 0.44, d + 0.7);
+      if (b.k <= 0.02) return;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y); ctx.lineTo(e.x, e.y);
+      ctx.closePath(); ctx.fill();
+    });
+  }
+
+  // rel baja: bayangan + badan + sorot
+  function railQuad(lx, hw, dy, color) {
+    const a = project(lx - hw, 0), b = project(lx + hw, 0);
+    const c = project(lx + hw, Z_MAX), e = project(lx - hw, Z_MAX);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(e.x, e.y + dy); ctx.lineTo(c.x, c.y + dy);
+    ctx.lineTo(b.x, b.y + dy); ctx.lineTo(a.x, a.y + dy);
+    ctx.closePath(); ctx.fill();
+  }
+  [-1, 0, 1].forEach(lx => {
+    [lx - 0.3, lx + 0.3].forEach(rx => {
+      railQuad(rx, 0.07, 2, 'rgba(0,0,0,.35)');
+      railQuad(rx, 0.055, 0, '#8a919c');
+      railQuad(rx, 0.032, 0, '#e3e8ee');
+    });
   });
 
-  // strip merah-putih di bahu jalan
+  // strip merah-putih di bahu rel
   const off2 = 5 - (G.dist % 5);
   for (let d = off2; d < Z_MAX; d += 5) {
     [-1.8, 1.8].forEach(lx => {
@@ -876,14 +912,46 @@ function drawPlayer() {
 
   if (SPRITES.playerPhoto || SPRITES.player) {
     const sp = SPRITES.playerPhoto || SPRITES.player;
-    const aspect = sp.naturalWidth && sp.naturalHeight ? sp.naturalWidth / sp.naturalHeight : 1;
+    const hipF = SPRITES.playerPhoto ? 0.635 : 0.62;
+    const iw = sp.naturalWidth || 1;
+    const ih = sp.naturalHeight || 1;
+    const aspect = iw / ih;
     const bob = running ? Math.abs(Math.sin(t * 13)) * U * 0.05 : 0;
     const tilt = clamp((G.lane - G.x) * 0.35, -0.28, 0.28);
-    const h = U * 1.5, w = h * aspect;
+    const fullH = U * 1.5;
+    const bodyH = fullH * hipF;
+    const legH = fullH * (1 - hipF);
+    const w = fullH * aspect;
+    const hipY = -legH;
+
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tilt);
-    ctx.drawImage(sp, -w / 2, -h + bob, w, h);
+
+    // kaki berlari
+    const fw = U * 0.13, fh = U * 0.065;
+    const lFX = -U * 0.07 + swing * U * 0.16;
+    const rFX = U * 0.07 - swing * U * 0.16;
+    const lFY = -Math.max(0, swing) * U * 0.1;
+    const rFY = -Math.max(0, -swing) * U * 0.1;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#1f2a44';
+    ctx.lineWidth = Math.max(2, U * 0.115);
+    ctx.beginPath();
+    ctx.moveTo(-U * 0.07, hipY);
+    ctx.lineTo(lFX, lFY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(U * 0.07, hipY);
+    ctx.lineTo(rFX, rFY);
+    ctx.stroke();
+    ctx.fillStyle = '#e23b4c';
+    ctx.beginPath(); ctx.ellipse(lFX, lFY - fh * 0.2, fw, fh, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(rFX, rFY - fh * 0.2, fw, fh, 0, 0, Math.PI * 2); ctx.fill();
+
+    // badan: foto dipotong di pinggul
+    ctx.drawImage(sp, 0, 0, iw, ih * hipF, -w / 2, -fullH + bob, w, bodyH);
+
     ctx.restore();
     ctx.restore();
     return;
@@ -943,21 +1011,43 @@ function makeRoadTexture() {
   const c = document.createElement('canvas');
   c.width = 128; c.height = 512;
   const g = c.getContext('2d');
-  g.fillStyle = '#39415f';
+  // balast (kerikil)
+  g.fillStyle = '#7c7568';
   g.fillRect(0, 0, 128, 512);
-  for (let i = 0; i < 500; i++) {
-    g.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.05) + ')';
-    g.fillRect(Math.random() * 128, Math.random() * 512, 2, 2);
+  for (let i = 0; i < 700; i++) {
+    g.fillStyle = Math.random() > 0.5
+      ? 'rgba(255,255,255,' + (Math.random() * 0.12) + ')'
+      : 'rgba(0,0,0,' + (Math.random() * 0.18) + ')';
+    g.fillRect(Math.random() * 128, Math.random() * 512,
+      1 + Math.random() * 2, 1 + Math.random() * 2);
   }
-  g.fillStyle = '#f4f4f5';
-  g.fillRect(4, 0, 6, 512);
-  g.fillRect(118, 0, 6, 512);
-  g.fillStyle = 'rgba(255,255,255,.9)';
-  const period = 219, dash = 113;
-  for (let y = -dash; y < 512 + dash; y += period) {
-    g.fillRect(44, y, 5, dash);
-    g.fillRect(79, y, 5, dash);
+  // bantalan rel (sleepers), 8 baris per tile (64px = ~1.75 unit)
+  const laneC = [27, 64, 101];
+  for (let i = 0; i < 8; i++) {
+    const y = i * 64 + 12;
+    g.fillStyle = i % 2 ? '#5d4732' : '#4f3c2a';
+    laneC.forEach(cx => {
+      g.fillRect(cx - 16, y, 32, 26);
+      g.fillStyle = 'rgba(0,0,0,.25)';
+      g.fillRect(cx - 16, y + 24, 32, 3);
+      g.fillStyle = i % 2 ? '#5d4732' : '#4f3c2a';
+    });
   }
+  // rel baja sepanjang lintasan di tiap lajur (jarak lebar ±0.66 unit)
+  laneC.forEach(cx => {
+    [-11, 11].forEach(dx => {
+      g.fillStyle = '#4b5563';
+      g.fillRect(cx + dx - 3, 0, 7, 512);
+      g.fillStyle = '#c5ccd4';
+      g.fillRect(cx + dx - 2, 0, 4, 512);
+      g.fillStyle = '#eef1f5';
+      g.fillRect(cx + dx - 1, 0, 2, 512);
+    });
+  });
+  // tepi
+  g.fillStyle = '#e8eaed';
+  g.fillRect(2, 0, 5, 512);
+  g.fillRect(121, 0, 5, 512);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
@@ -1043,7 +1133,7 @@ function makePlayer3D() {
   P.add(brim);
   return { group: P, legL: legL, legR: legR, armL: armL, armR: armR };
 }
-function makePhoto3D(img) {
+function makePhoto3D(img, hipFrac) {
   const c = document.createElement('canvas');
   c.width = img.width;
   c.height = img.height;
@@ -1063,17 +1153,19 @@ function makePhoto3D(img) {
   }
   if (x1 < x0) throw new Error('foto kosong');
   const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  const cropH = hipFrac ? Math.max(1, Math.round(bh * hipFrac)) : bh;
   const crop = document.createElement('canvas');
   crop.width = bw;
-  crop.height = bh;
-  crop.getContext('2d').drawImage(c, x0, y0, bw, bh, 0, 0, bw, bh);
+  crop.height = cropH;
+  crop.getContext('2d').drawImage(c, x0, y0, bw, cropH, 0, 0, bw, cropH);
   const tex = new THREE.CanvasTexture(crop);
-  const h = 2.0, w = h * (bw / bh);
+  const h = 2.0 * (cropH / bh);
+  const w = h * (bw / cropH);
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
     new THREE.MeshBasicMaterial({
       map: tex, transparent: true, alphaTest: 0.08, side: THREE.DoubleSide
     }));
-  mesh.position.y = h / 2;
+  mesh.position.y = hipFrac ? 0.72 + h / 2 : h / 2;
   return mesh;
 }
 function makeObjMesh(o) {
@@ -1288,8 +1380,10 @@ function init3D() {
       photo.onload = () => {
         if (!R3) return;
         try {
-          const mesh = makePhoto3D(photo);
-          for (const ch of player.group.children.slice()) ch.visible = false;
+          const mesh = makePhoto3D(photo, 0.635);
+          for (const ch of player.group.children.slice()) {
+            if (ch !== player.legL && ch !== player.legR) ch.visible = false;
+          }
           player.group.add(mesh);
           player.photo = mesh;
         } catch (e) {
