@@ -28,6 +28,12 @@ canvas#game3d { position: fixed; inset: 0; width: 100%; height: 100%; display: b
   letter-spacing: .5px; backdrop-filter: blur(6px);
 }
 .pill.alert { color: var(--red); border-color: var(--red); }
+.pill.pu { color: #06210f; font-weight: 800; border-color: transparent; animation: puPulse 1s ease-in-out infinite; }
+#hudPuJump { background: linear-gradient(180deg, #7dd3fc, #0ea5e9); }
+#hudPuCoin { background: linear-gradient(180deg, #fde047, #f59e0b); }
+@keyframes puPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+#btnMusic { position: absolute; right: 10px; bottom: 58px; pointer-events: auto; }
+#btnMusic.off { opacity: .5; text-decoration: line-through; }
 .qbar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(420px, 74vw); }
 .qbar-label { font-size: 12px; font-weight: 700; text-align: center; margin-bottom: 5px; color: #fff; text-shadow: 0 2px 6px #000; }
 .qbar-track { height: 12px; background: rgba(6, 10, 26, .7); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }

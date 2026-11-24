@@ -1,14 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="160" viewBox="0 0 200 160">
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dff1ff"/>
+      <stop offset="1" stop-color="#8fb8d6"/>
+    </linearGradient>
+  </defs>
   <g>
-    <rect x="10" y="8" width="140" height="140" rx="18" fill="#c92f3f"/>
-    <rect x="10" y="8" width="140" height="140" rx="18" fill="none" stroke="#8e2230" stroke-width="6"/>
-    <rect x="24" y="24" width="112" height="58" rx="12" fill="#9fd8ff"/>
-    <rect x="24" y="24" width="112" height="58" rx="12" fill="none" stroke="#5b8fb8" stroke-width="5"/>
-    <path d="M30 34 L70 34 L48 74 L30 74 Z" fill="rgba(255,255,255,.45)"/>
-    <rect x="22" y="94" width="116" height="16" rx="8" fill="#8e2230"/>
-    <circle cx="44" cy="124" r="11" fill="#ffe680" stroke="#c9a227" stroke-width="4"/>
-    <circle cx="116" cy="124" r="11" fill="#ffe680" stroke="#c9a227" stroke-width="4"/>
-    <rect x="58" y="136" width="44" height="12" rx="5" fill="#4b5563"/>
-    <rect x="66" y="4" width="28" height="14" rx="6" fill="#8e2230"/>
+    <!-- bodi putih -->
+    <path d="M18 132 L18 58 Q18 22 62 18 L150 18 Q186 22 186 58 L186 132 Z" fill="#f7f4ef" stroke="#cfc8bd" stroke-width="4"/>
+    <!-- atap abu -->
+    <path d="M62 18 L150 18 Q186 22 186 40 L18 40 Q18 24 62 18 Z" fill="#d9d4cb"/>
+    <!-- kaca depan ganda -->
+    <rect x="34" y="46" width="62" height="44" rx="8" fill="url(#glass)" stroke="#5b6b7a" stroke-width="5"/>
+    <rect x="106" y="46" width="62" height="44" rx="8" fill="url(#glass)" stroke="#5b6b7a" stroke-width="5"/>
+    <!-- pantulan kaca -->
+    <path d="M40 84 L64 52 L78 52 L50 84 Z" fill="rgba(255,255,255,.55)"/>
+    <path d="M112 84 L136 52 L150 52 L122 84 Z" fill="rgba(255,255,255,.55)"/>
+    <!-- wiper -->
+    <path d="M42 84 L74 54" stroke="#2f3540" stroke-width="4" stroke-linecap="round" fill="none"/>
+    <path d="M114 84 L146 54" stroke="#2f3540" stroke-width="4" stroke-linecap="round" fill="none"/>
+    <!-- strip merah bawah -->
+    <path d="M18 96 L186 96 L186 124 Q186 132 178 132 L26 132 Q18 132 18 124 Z" fill="#e8342c"/>
+    <path d="M18 96 L186 96 L186 104 L18 104 Z" fill="#b71f19"/>
+    <!-- lampu utama kuning -->
+    <circle cx="54" cy="116" r="14" fill="#ffe27a" stroke="#8a6d12" stroke-width="5"/>
+    <circle cx="54" cy="116" r="6" fill="#fff6c9"/>
+    <!-- lampu putih kecil -->
+    <circle cx="94" cy="118" r="9" fill="#f4f6f8" stroke="#8a919c" stroke-width="4"/>
+    <circle cx="146" cy="118" r="9" fill="#f4f6f8" stroke="#8a919c" stroke-width="4"/>
+    <!-- lampu atas -->
+    <ellipse cx="100" cy="26" rx="14" ry="8" fill="#ffe27a" stroke="#8a6d12" stroke-width="4"/>
+    <!-- bumper / sasis -->
+    <rect x="22" y="132" width="156" height="14" rx="5" fill="#4b5563"/>
+    <rect x="70" y="138" width="60" height="10" rx="4" fill="#303644"/>
+    <!-- rel -->
+    <rect x="6" y="146" width="188" height="6" rx="3" fill="#8b5a2b"/>
+    <rect x="6" y="154" width="188" height="5" rx="2" fill="#6f4520"/>
   </g>
 </svg>

@@ -44,7 +44,7 @@ const DEFAULT_QUESTIONS = [
 ];
 
 /* ==================== PENYIMPANAN ==================== */
-const LS = { best: 'lb_best', bank: 'lb_bank', interval: 'lb_interval', kelas: 'lb_kelas', session: 'lb_session', admin: 'lb_admin', scores: 'lb_scores' };
+const LS = { best: 'lb_best', bank: 'lb_bank', interval: 'lb_interval', kelas: 'lb_kelas', session: 'lb_session', admin: 'lb_admin', scores: 'lb_scores', music: 'lb_music' };
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
@@ -88,6 +88,7 @@ function logout() {
 }
 function showMenu() {
   G.mode = 'menu';
+  AudioEngine.stop();
   $('#login').classList.add('hidden');
   $('#menu').classList.remove('hidden');
   $('#hud').classList.add('hidden');
@@ -132,7 +133,8 @@ const G = {
   bank: [], queue: [], qi: 0,
   asked: 0, firstTry: 0, miss: 0, tries: 0,
   current: null, qOpenAt: 0, answered: false, wrongAt: 0,
-  invuln: 0, shake: 0, flash: 0
+  invuln: 0, shake: 0, flash: 0,
+  puJump: 0, puCoin: 0
 };
 
 const BANK_BY_KELAS = (typeof BANK_BY_CLASS !== 'undefined') ? BANK_BY_CLASS : null;
@@ -208,6 +210,7 @@ function resetGame() {
   G.nextQ = Math.min(500, G.interval * 0.7);
   G.asked = 0; G.firstTry = 0; G.miss = 0;
   G.invuln = 0; G.shake = 0; G.flash = 0;
+  G.puJump = 0; G.puCoin = 0;
   G.queue = shuffle(G.bank.map((_, i) => i)); G.qi = 0;
 }
 function startGame() {
@@ -218,6 +221,7 @@ function startGame() {
   $('#hud').classList.remove('hidden');
   $('#gameOver').classList.add('hidden');
   $('#pauseModal').classList.add('hidden');
+  AudioEngine.start();
 }
 function toMenu() {
   showMenu();
@@ -244,6 +248,7 @@ function renderScores() {
 }
 function gameOver() {
   G.mode = 'over';
+  AudioEngine.stop();
   const best = Math.max(store.get(LS.best, 0), Math.floor(G.score));
   store.set(LS.best, best);
   saveScore();
@@ -262,11 +267,13 @@ function gameOver() {
 function pauseGame() {
   if (G.mode !== 'running') return;
   G.mode = 'paused';
+  AudioEngine.setPaused(true);
   $('#pauseModal').classList.remove('hidden');
 }
 function resumeGame() {
   if (G.mode !== 'paused') return;
   G.mode = 'running';
+  AudioEngine.setPaused(false);
   $('#pauseModal').classList.add('hidden');
 }
 
@@ -298,6 +305,7 @@ function openQuestion() {
     box.appendChild(b);
   });
   $('#questionModal').classList.remove('hidden');
+  AudioEngine.stop();
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -319,6 +327,7 @@ function answer(i, btn) {
     $('#qBtnContinue').classList.remove('hidden');
     $('#qBtnContinue').focus();
     toast('Jawaban benar! Lanjut berlari', 'good');
+    AudioEngine.sfx('good');
   } else {
     G.tries++;
     G.miss++;
@@ -332,6 +341,7 @@ function answer(i, btn) {
     fb.className = 'feedback bad';
     fb.textContent = 'Jawaban salah! Permainan diulangi dari awal...';
     toast('Jawaban salah! Ulangi dari awal', 'bad');
+    AudioEngine.sfx('bad');
     G.mode = 'wrong';
     G.wrongAt = performance.now();
   }
@@ -343,15 +353,23 @@ function continueRun() {
   G.qStartInterval = G.interval * rand(0.9, 1.15);
   G.nextQ = G.dist + G.qStartInterval;
   G.score += 10;
+  AudioEngine.start();
 }
 
 /* ==================== SPAWN ==================== */
+const POWER_KINDS = ['jump', 'coin2'];
 function spawnPattern() {
   const z = Z_MAX;
   const r = Math.random();
   const lanes = [-1, 0, 1];
   const free = randi(0, 2);
   const busy = lanes.filter(l => l !== free);
+
+  // hadiah power-up sesekali di lajur bebas
+  if (Math.random() < 0.30) {
+    const kind = POWER_KINDS[randi(0, POWER_KINDS.length - 1)];
+    G.objs.push({ type: 'power', kind: kind, lane: lanes[free], d: z + rand(2, 5), hit: false, spin: rand(0, 6) });
+  }
 
   if (r < 0.30) {
     // deret koin di satu lajur
@@ -416,6 +434,8 @@ function update(dt) {
 
   if (G.invuln > 0) G.invuln -= dt;
   if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 40);
+  if (G.puJump > 0) G.puJump = Math.max(0, G.puJump - dt);
+  if (G.puCoin > 0) G.puCoin = Math.max(0, G.puCoin - dt);
 
   // spawn
   if (G.dist >= G.spawnAt) {
@@ -439,11 +459,30 @@ function update(dt) {
 
     if (o.type === 'coin') {
       o.hit = true; o.gone = true;
-      G.coins++; G.score += 10;
-      pop(o.lane, 'Koin +10', '#ffd93d');
+      const dbl = G.puCoin > 0;
+      const gain = dbl ? 2 : 1;
+      G.coins += gain;
+      G.score += 10 * gain;
+      pop(o.lane, dbl ? 'Koin ×2 +20' : 'Koin +10', '#ffd93d');
+      AudioEngine.sfx(dbl ? 'coin2' : 'coin');
       continue;
     }
-    const cleared = o.type === 'barrier' && G.y > 0.45;
+    if (o.type === 'power') {
+      o.hit = true; o.gone = true;
+      if (o.kind === 'jump') {
+        G.puJump = 10;
+        pop(o.lane, 'LONCAT TINGGI!', '#4ade80');
+        toast('Hadiah: Lompatan tinggi 10 detik!', 'good');
+      } else {
+        G.puCoin = 12;
+        pop(o.lane, 'KOIN ×2!', '#fde047');
+        toast('Hadiah: Koin ganda 12 detik!', 'good');
+      }
+      AudioEngine.sfx('power');
+      continue;
+    }
+    const cleared = (o.type === 'barrier' && G.y > 0.45) ||
+      (o.type === 'train' && G.y > 1.55);
     if (cleared) continue;
     if (G.invuln > 0) continue;
 
@@ -456,7 +495,8 @@ function update(dt) {
     G.flash = 0.5;
     pop(G.lane, 'Tabrak!', '#ff6b6b');
     toast('Hati-hati! Nyawa berkurang', 'bad');
-    if (G.lives <= 0) { gameOver(); return; }
+    AudioEngine.sfx('hit');
+    if (G.lives <= 0) { AudioEngine.sfx('over'); gameOver(); return; }
   }
 
   // pertanyaan
@@ -487,6 +527,12 @@ function updateHud() {
   const pct = clamp(1 - remain / Math.max(1, G.qStartInterval), 0, 1);
   $('#qFill').style.width = (pct * 100).toFixed(1) + '%';
   $('#qLabel').textContent = 'Soal berikutnya dalam ' + Math.max(0, Math.ceil(remain)) + ' m';
+
+  const puJ = $('#hudPuJump'), puC = $('#hudPuCoin');
+  puJ.classList.toggle('hidden', G.puJump <= 0);
+  if (G.puJump > 0) puJ.textContent = '↑ LOMPAT ' + Math.ceil(G.puJump) + 's';
+  puC.classList.toggle('hidden', G.puCoin <= 0);
+  if (G.puCoin > 0) puC.textContent = 'KOIN ×2 ' + Math.ceil(G.puCoin) + 's';
 }
 
 /* ==================== RENDER ==================== */
@@ -559,6 +605,7 @@ function render() {
     if (o.type === 'coin') drawCoin(o);
     else if (o.type === 'barrier') drawBarrier(o);
     else if (o.type === 'train') drawTrain(o);
+    else if (o.type === 'power') drawPower(o);
   }
 
   if (G.mode !== 'menu') drawPlayer();
@@ -682,51 +729,129 @@ function drawBarrier(o) {
   ctx.fillRect(x + w * 0.8, y + h, w * 0.1, h * 0.35);
 }
 
+function drawPower(o) {
+  const p = project(o.lane, o.d);
+  if (p.k <= 0.02) return;
+  const r = Math.max(3, p.k * H * 0.05);
+  const cy = p.y - p.k * H * 0.1 - r;
+  const t = performance.now() / 1000;
+  const bob = Math.sin(t * 4 + (o.spin || 0)) * r * 0.18;
+  const isJump = o.kind === 'jump';
+  const col = isJump ? '#4ade80' : '#fde047';
+  const colD = isJump ? '#16a34a' : '#f59e0b';
+
+  ctx.save();
+  ctx.translate(p.x, cy + bob);
+  ctx.rotate(Math.sin(t * 2 + (o.spin || 0)) * 0.14);
+
+  // glow
+  ctx.shadowColor = col;
+  ctx.shadowBlur = r * 1.1;
+
+  // kotak hadiah bulat
+  rr(ctx, -r, -r, r * 2, r * 2, r * 0.34);
+  ctx.fillStyle = col;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = Math.max(1.5, r * 0.16);
+  ctx.strokeStyle = colD;
+  ctx.stroke();
+
+  ctx.fillStyle = '#0b1a10';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (isJump) {
+    // panah atas
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.6);
+    ctx.lineTo(r * 0.5, -r * 0.05);
+    ctx.lineTo(r * 0.2, -r * 0.05);
+    ctx.lineTo(r * 0.2, r * 0.55);
+    ctx.lineTo(-r * 0.2, r * 0.55);
+    ctx.lineTo(-r * 0.2, -r * 0.05);
+    ctx.lineTo(-r * 0.5, -r * 0.05);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    ctx.font = '900 ' + Math.round(r * 0.95) + 'px Segoe UI, Arial';
+    ctx.fillStyle = '#7c4a00';
+    ctx.fillText('×2', 0, r * 0.06);
+  }
+  ctx.restore();
+}
+
 function drawTrain(o) {
   const pN = project(o.lane, o.d);
   const pF = project(o.lane, o.d + (o.len || 8));
   if (pN.k <= 0.02) return;
-  const wN = pN.k * H * 0.19, hN = pN.k * H * 0.34;
-  const wF = pF.k * H * 0.19, hF = pF.k * H * 0.34;
+  const wN = pN.k * H * 0.21, hN = pN.k * H * 0.36;
+  const wF = pF.k * H * 0.21, hF = pF.k * H * 0.36;
 
-  // sisi atas + sisi kiri/kanan (prisma sederhana)
-  ctx.fillStyle = '#c92f3f';
-  ctx.beginPath();
-  ctx.moveTo(pN.x - wN / 2, pN.y - hN);
-  ctx.lineTo(pN.x + wN / 2, pN.y - hN);
-  ctx.lineTo(pF.x + wF / 2, pF.y - hF);
-  ctx.lineTo(pF.x - wF / 2, pF.y - hF);
-  ctx.closePath(); ctx.fill();
+  // --- sisi panjang (putih dengan strip merah) ---
+  const sideTop = { x: pF.x + wF / 2, y: pF.y - hF };
+  const sideBot = { x: pF.x + wF / 2, y: pF.y };
+  const nearTop = { x: pN.x + wN / 2, y: pN.y - hN };
+  const nearBot = { x: pN.x + wN / 2, y: pN.y };
 
-  ctx.fillStyle = '#8e2230';
-  ctx.beginPath();
-  ctx.moveTo(pN.x + wN / 2, pN.y - hN);
-  ctx.lineTo(pF.x + wF / 2, pF.y - hF);
-  ctx.lineTo(pF.x + wF / 2, pF.y);
-  ctx.lineTo(pN.x + wN / 2, pN.y);
-  ctx.closePath(); ctx.fill();
+  function quad(a, b, c, d, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // atap
+  quad(
+    { x: pN.x - wN / 2, y: pN.y - hN }, { x: pN.x + wN / 2, y: pN.y - hN },
+    { x: pF.x + wF / 2, y: pF.y - hF }, { x: pF.x - wF / 2, y: pF.y - hF },
+    '#d9d4cb'
+  );
+
+  // sisi kanan: bodi putih
+  quad(nearTop, sideTop, sideBot, nearBot, '#f7f4ef');
+  // strip merah di sisi (14%-100% tinggi)
+  const lerpP = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  const band = (t0, t1, color) => {
+    const a = lerpP(nearTop, nearBot, t0), b = lerpP(nearTop, nearBot, t1);
+    const c = lerpP(sideTop, sideBot, t1), d = lerpP(sideTop, sideBot, t0);
+    quad(a, b, c, d, color);
+  };
+  band(0.14, 0.36, '#2f3540');   // deret jendela
+  band(0.55, 0.78, '#e8342c');   // strip merah
+  band(0.78, 0.86, '#b71f19');   // garis merah tua
+  band(0.9, 1.0, '#4b5563');     // sasis
 
   // muka depan
+  const fx = pN.x - wN / 2, fy = pN.y - hN;
   if (SPRITES.train) {
-    ctx.drawImage(SPRITES.train, pN.x - wN / 2, pN.y - hN, wN, hN);
+    ctx.drawImage(SPRITES.train, fx, fy, wN, hN);
   } else {
-    rr(ctx, pN.x - wN / 2, pN.y - hN, wN, hN, wN * 0.12);
-    ctx.fillStyle = '#e23b4c'; ctx.fill();
-    // jendela depan
-    rr(ctx, pN.x - wN * 0.36, pN.y - hN * 0.86, wN * 0.72, hN * 0.34, wN * 0.08);
-    ctx.fillStyle = '#9fd8ff'; ctx.fill();
-    // lampu
-    ctx.fillStyle = '#ffe680';
-    ctx.beginPath(); ctx.arc(pN.x - wN * 0.28, pN.y - hN * 0.16, wN * 0.08, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(pN.x + wN * 0.28, pN.y - hN * 0.16, wN * 0.08, 0, Math.PI * 2); ctx.fill();
+    rr(ctx, fx, fy, wN, hN, wN * 0.16);
+    ctx.fillStyle = '#f7f4ef'; ctx.fill();
+    ctx.save();
+    ctx.clip();
+    // strip merah depan
+    ctx.fillStyle = '#e8342c';
+    ctx.fillRect(fx, fy + hN * 0.58, wN, hN * 0.26);
+    // kaca depan ganda
+    ctx.fillStyle = '#9fd8ff';
+    rr(ctx, fx + wN * 0.12, fy + hN * 0.26, wN * 0.3, hN * 0.24, wN * 0.05); ctx.fill();
+    rr(ctx, fx + wN * 0.56, fy + hN * 0.26, wN * 0.3, hN * 0.24, wN * 0.05); ctx.fill();
+    // lampu kuning
+    ctx.fillStyle = '#ffe27a';
+    ctx.beginPath(); ctx.arc(fx + wN * 0.26, fy + hN * 0.7, wN * 0.09, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(fx + wN * 0.74, fy + hN * 0.7, wN * 0.09, 0, Math.PI * 2); ctx.fill();
+    // lampu atas
+    ctx.beginPath(); ctx.ellipse(fx + wN * 0.5, fy + hN * 0.1, wN * 0.1, hN * 0.05, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    rr(ctx, fx, fy, wN, hN, wN * 0.16);
+    ctx.strokeStyle = '#cfc8bd'; ctx.lineWidth = Math.max(1.5, pN.k * 3); ctx.stroke();
+    // sasis depan
+    ctx.fillStyle = '#4b5563';
+    ctx.fillRect(fx + wN * 0.08, pN.y - hN * 0.1, wN * 0.84, hN * 0.1);
   }
-  // rel
-  ctx.strokeStyle = 'rgba(255,255,255,.7)';
-  ctx.lineWidth = Math.max(1, pN.k * 4);
-  ctx.beginPath();
-  ctx.moveTo(pN.x - wN / 2, pN.y - hN * 0.5);
-  ctx.lineTo(pF.x - wF / 2, pF.y - hF * 0.5);
-  ctx.stroke();
 }
 
 function drawPlayer() {
@@ -961,6 +1086,40 @@ function makeObjMesh(o) {
     R3.scene.add(g);
     return g;
   }
+  if (o.type === 'power') {
+    const g = new THREE.Group();
+    const isJump = o.kind === 'jump';
+    const col = isJump ? 0x4ade80 : 0xfde047;
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9),
+      new THREE.MeshLambertMaterial({ color: col, emissive: isJump ? 0x0d5a2c : 0x6b5200 }));
+    g.add(box);
+    const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    if (isJump) {
+      const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.06), white);
+      shaft.position.set(0, -0.1, 0.47);
+      g.add(shaft);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.28, 4), white);
+      tip.position.set(0, 0.24, 0.47);
+      tip.rotation.x = Math.PI / 2;
+      tip.rotation.z = Math.PI / 4;
+      g.add(tip);
+    } else {
+      const bar1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.14, 0.06), white);
+      bar1.position.set(0, 0, 0.47);
+      g.add(bar1);
+      const bar2 = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.5, 0.06), white);
+      bar2.position.set(0, 0, 0.47);
+      g.add(bar2);
+      const dotA = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 10), white);
+      dotA.position.set(-0.3, 0.3, 0.47);
+      g.add(dotA);
+      const dotB = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 10), white);
+      dotB.position.set(0.3, -0.3, 0.47);
+      g.add(dotB);
+    }
+    R3.scene.add(g);
+    return g;
+  }
   if (o.type === 'barrier') {
     const g = new THREE.Group();
     const board = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.9, 0.3),
@@ -976,30 +1135,85 @@ function makeObjMesh(o) {
     R3.scene.add(g);
     return g;
   }
+  // kereta merah-putih ala gambar
   const len = o.len || 9;
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.3, len),
-    new THREE.MeshLambertMaterial({ color: 0xc92f3f }));
-  body.position.y = 1.35;
+  const white = new THREE.MeshLambertMaterial({ color: 0xf7f4ef });
+  const red = new THREE.MeshLambertMaterial({ color: 0xe8342c });
+  const redDark = new THREE.MeshLambertMaterial({ color: 0xb71f19 });
+  const glass = new THREE.MeshLambertMaterial({ color: 0x8fb8d6, emissive: 0x1a2a38 });
+  const gray = new THREE.MeshLambertMaterial({ color: 0x4b5563 });
+  const roofMat = new THREE.MeshLambertMaterial({ color: 0xd9d4cb });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.4, len), white);
+  body.position.y = 1.4;
   g.add(body);
-  const front = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.3, 0.15),
-    new THREE.MeshLambertMaterial({ color: 0xe23b4c }));
-  front.position.set(0, 1.35, len / 2 + 0.01);
-  g.add(front);
-  const win = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.8, 0.1),
-    new THREE.MeshLambertMaterial({ color: 0x9fd8ff }));
-  win.position.set(0, 1.9, len / 2 + 0.1);
-  g.add(win);
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, len * 0.96),
-    new THREE.MeshLambertMaterial({ color: 0x8e2230 }));
-  roof.position.y = 2.55;
+
+  // strip merah memanjang
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.26, 0.7, len * 1.002), red);
+  stripe.position.y = 0.85;
+  g.add(stripe);
+  const stripe2 = new THREE.Mesh(new THREE.BoxGeometry(2.24, 0.16, len * 1.004), redDark);
+  stripe2.position.y = 1.28;
+  g.add(stripe2);
+
+  // jendela samping
+  const winCount = Math.max(3, Math.floor(len / 1.4));
+  for (let i = 0; i < winCount; i++) {
+    const wz = -len / 2 + (i + 0.5) * (len / winCount);
+    [1.12, -1.12].forEach(sx => {
+      const w = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.7, len / winCount * 0.6), glass);
+      w.position.set(sx, 1.85, wz);
+      g.add(w);
+    });
+  }
+
+  // atap
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.22, len * 0.98), roofMat);
+  roof.position.y = 2.7;
   g.add(roof);
-  const lightMat = new THREE.MeshBasicMaterial({ color: 0xffe680 });
-  [-0.7, 0.7].forEach(x => {
-    const l = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), lightMat);
-    l.position.set(x, 0.7, len / 2 + 0.12);
+
+  // sasis
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.5, len * 0.96), gray);
+  chassis.position.y = 0.28;
+  g.add(chassis);
+
+  // muka depan: kaca ganda + lampu (menghadap +z ke arah pemain? tidak — muka menghadap pemain = -z depan objek)
+  // objek bergerak ke arah pemain, muka = sisi +z (dekat pemain)
+  const fz = len / 2;
+  const face = new THREE.Mesh(new THREE.BoxGeometry(2.1, 2.3, 0.12), white);
+  face.position.set(0, 1.4, fz + 0.02);
+  g.add(face);
+  const faceStripe = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.7, 0.14), red);
+  faceStripe.position.set(0, 0.85, fz + 0.03);
+  g.add(faceStripe);
+  [-0.5, 0.5].forEach(x => {
+    const ws = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.72, 0.1), glass);
+    ws.position.set(x, 2.0, fz + 0.06);
+    g.add(ws);
+    const wl = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.6, 0.06),
+      new THREE.MeshLambertMaterial({ color: 0x2f3540 }));
+    wl.position.set(x + (x < 0 ? 0.2 : -0.2), 2.0, fz + 0.1);
+    wl.rotation.z = x < 0 ? -0.5 : 0.5;
+    g.add(wl);
+  });
+  // lampu kuning besar
+  [-0.55, 0.55].forEach(x => {
+    const l = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffe27a }));
+    l.position.set(x, 0.85, fz + 0.12);
     g.add(l);
   });
+  // lampu atas
+  const topL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10),
+    new THREE.MeshBasicMaterial({ color: 0xffe27a }));
+  topL.position.set(0, 2.6, fz + 0.08);
+  g.add(topL);
+  // sasis depan
+  const buf = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.4, 0.2), gray);
+  buf.position.set(0, 0.3, fz + 0.1);
+  g.add(buf);
+
   R3.scene.add(g);
   return g;
 }
@@ -1131,6 +1345,10 @@ function render3D() {
     if (o.type === 'coin') {
       m.position.set(o.lane * 2.2, 1.05 + Math.sin(t * 3 + o.d) * 0.12, z);
       m.rotation.y = t * 4 + o.d;
+    } else if (o.type === 'power') {
+      m.position.set(o.lane * 2.2, 1.15 + Math.sin(t * 4 + (o.spin || 0)) * 0.16, z);
+      m.rotation.y = t * 2.2 + (o.spin || 0);
+      m.rotation.z = Math.sin(t * 2 + (o.spin || 0)) * 0.15;
     } else if (o.type === 'barrier') {
       m.position.set(o.lane * 2.2, 0, z);
     } else {
@@ -1206,6 +1424,174 @@ function toast(msg, kind) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), 1800);
 }
+
+/* ==================== MUSIK & SFX (Web Audio) ==================== */
+const AudioEngine = (function () {
+  let ctx = null, master = null, musicGain = null, sfxGain = null;
+  let seqTimer = null, step = 0, nextTime = 0, playing = false;
+  let muted = !!store.get(LS.music, false);
+
+  const BPM = 138;
+  const STEP = 60 / BPM / 4;
+  const nf = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  // Melodi ringan bergaya runner (orinal, bukan salinan lagu siapa pun) — 32 langkah
+  const LEAD = [
+    76, 79, 83, 86, 83, 79, 81, null,
+    74, 77, 81, 84, 81, 77, 79, null,
+    72, 76, 79, 84, 79, 76, 77, null,
+    71, 74, 78, 83, 79, 76, 74, 71
+  ];
+  const BASS = [
+    [45, .5], [45, .5], [52, .5], [45, .5], [45, .5], [52, .5], [45, .5], [52, .5],
+    [41, .5], [41, .5], [48, .5], [41, .5], [41, .5], [48, .5], [41, .5], [48, .5],
+    [48, .5], [48, .5], [55, .5], [48, .5], [48, .5], [55, .5], [48, .5], [55, .5],
+    [43, .5], [43, .5], [50, .5], [43, .5], [43, .5], [50, .5], [43, .5], [50, .5]
+  ];
+
+  function ensure() {
+    if (ctx) return true;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      ctx = new AC();
+      master = ctx.createGain();
+      master.gain.value = muted ? 0 : 0.9;
+      master.connect(ctx.destination);
+      musicGain = ctx.createGain();
+      musicGain.gain.value = 0.34;
+      musicGain.connect(master);
+      sfxGain = ctx.createGain();
+      sfxGain.gain.value = 0.5;
+      sfxGain.connect(master);
+      return true;
+    } catch (e) { return false; }
+  }
+  function unlock() {
+    if (!ensure()) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  }
+  function tone(t, freq, dur, type, vol, dest) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(dest);
+    o.start(t); o.stop(t + dur + 0.03);
+  }
+  function noiseHit(t, dur, vol, hp) {
+    const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
+    const g = ctx.createGain(); g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(musicGain);
+    src.start(t);
+  }
+  function schedule() {
+    if (!playing || !ctx) return;
+    while (nextTime < ctx.currentTime + 0.16) {
+      const i = step % 32;
+      const bar = Math.floor(step / 32);
+      if (i % 4 === 0) {
+        tone(nextTime, 140, 0.14, 'sine', 0.9, musicGain);
+        tone(nextTime, 55, 0.16, 'sine', 0.7, musicGain);
+      }
+      if (i % 8 === 4) noiseHit(nextTime, 0.09, 0.5, 1600);
+      if (i % 2 === 0) noiseHit(nextTime, 0.03, 0.18, 6500);
+      const b = BASS[i];
+      tone(nextTime, nf(b[0] - 12), STEP * b[1] * 1.8, 'sawtooth', 0.16, musicGain);
+      const ln = LEAD[i];
+      if (ln != null) {
+        tone(nextTime, nf(ln), STEP * 3.2, 'triangle', 0.13, musicGain);
+        if (bar % 2 === 1 && i % 8 === 0) tone(nextTime, nf(ln + 12), STEP * 5, 'triangle', 0.06, musicGain);
+      }
+      nextTime += STEP;
+      step++;
+    }
+  }
+  return {
+    unlock,
+    get muted() { return muted; },
+    start() {
+      if (!ensure()) return;
+      unlock();
+      if (playing) return;
+      playing = true;
+      step = 0;
+      nextTime = ctx.currentTime + 0.06;
+      seqTimer = setInterval(schedule, 40);
+      schedule();
+    },
+    stop() {
+      playing = false;
+      if (seqTimer) { clearInterval(seqTimer); seqTimer = null; }
+    },
+    setPaused(p) {
+      if (!ctx) return;
+      if (p) this.stop();
+      else if (G.mode === 'running' || G.mode === 'menu') this.start();
+    },
+    toggleMute() {
+      muted = !muted;
+      store.set(LS.music, muted);
+      if (master) master.gain.value = muted ? 0 : 0.9;
+      return muted;
+    },
+    sfx(kind) {
+      if (!ensure() || muted) return;
+      unlock();
+      const t = ctx.currentTime;
+      if (kind === 'coin') {
+        tone(t, 988, 0.07, 'square', 0.2, sfxGain);
+        tone(t + 0.06, 1319, 0.12, 'square', 0.18, sfxGain);
+      } else if (kind === 'coin2') {
+        [784, 988, 1319, 1568].forEach((f, i) => tone(t + i * 0.05, f, 0.14, 'square', 0.2, sfxGain));
+      } else if (kind === 'jump') {
+        tone(t, 340, 0.16, 'sine', 0.3, sfxGain, 0);
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(300, t);
+        o.frequency.exponentialRampToValueAtTime(760, t + 0.16);
+        g.gain.setValueAtTime(0.28, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        o.connect(g); g.connect(sfxGain);
+        o.start(t); o.stop(t + 0.24);
+      } else if (kind === 'power') {
+        [523, 659, 784, 1047, 1319].forEach((f, i) => tone(t + i * 0.06, f, 0.18, 'triangle', 0.24, sfxGain));
+      } else if (kind === 'hit') {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(220, t);
+        o.frequency.exponentialRampToValueAtTime(70, t + 0.28);
+        g.gain.setValueAtTime(0.3, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+        o.connect(g); g.connect(sfxGain);
+        o.start(t); o.stop(t + 0.34);
+        noiseHit2(t, 0.2, 0.3);
+      } else if (kind === 'good') {
+        [659, 880, 1047].forEach((f, i) => tone(t + i * 0.08, f, 0.2, 'triangle', 0.22, sfxGain));
+      } else if (kind === 'bad') {
+        [330, 247, 196].forEach((f, i) => tone(t + i * 0.1, f, 0.22, 'square', 0.16, sfxGain));
+      } else if (kind === 'over') {
+        [523, 466, 392, 311, 262].forEach((f, i) => tone(t + i * 0.14, f, 0.32, 'triangle', 0.2, sfxGain));
+      }
+      function noiseHit2(tt, dur, vol) {
+        const len = Math.floor(ctx.sampleRate * dur);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const src = ctx.createBufferSource(); src.buffer = buf;
+        const g = ctx.createGain(); g.gain.value = vol;
+        src.connect(g); g.connect(sfxGain);
+        src.start(tt);
+      }
+    }
+  };
+})();
 
 /* ==================== IMPORT SOAL ==================== */
 function splitLine(line, d) {
@@ -1358,7 +1744,10 @@ function move(dir) {
 }
 function jump() {
   if (G.mode !== 'running') return;
-  if (G.y === 0) { G.vy = 3.5; }
+  if (G.y === 0) {
+    G.vy = G.puJump > 0 ? 6.2 : 3.5;
+    AudioEngine.sfx('jump');
+  }
 }
 document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
@@ -1406,6 +1795,15 @@ $('#btnQuit').addEventListener('click', toMenu);
 $('#btnPause').addEventListener('click', pauseGame);
 $('#btnResume').addEventListener('click', resumeGame);
 $('#qBtnContinue').addEventListener('click', continueRun);
+$('#btnMusic').addEventListener('click', () => {
+  const muted = AudioEngine.toggleMute();
+  $('#btnMusic').classList.toggle('off', muted);
+  $('#btnMusic').textContent = muted ? '♪ MUSIK OFF' : '♪ MUSIK';
+  toast(muted ? 'Musik dimatikan' : 'Musik dinyalakan');
+});
+// buka kunci audio pada interaksi pertama (kebijakan autoplay browser)
+['pointerdown', 'keydown', 'touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => AudioEngine.unlock(), { once: true, passive: true }));
 
 $('#kelasSeg').addEventListener('click', e => {
   const b = e.target.closest('button[data-kelas]');
@@ -1498,6 +1896,10 @@ document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => e.preventDefault());
 
 /* ==================== INIT ==================== */
+if (AudioEngine.muted) {
+  $('#btnMusic').classList.add('off');
+  $('#btnMusic').textContent = '♪ MUSIK OFF';
+}
 init3D();
 buildBank();
 renderBankList();

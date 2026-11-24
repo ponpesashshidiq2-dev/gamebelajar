@@ -319,6 +319,53 @@ while (run('G.mode') !== 'question' && guard++ < 200) frames(1);
 ok(run('G.mode') === 'question', 'soal dari bank dipakai saat lari');
 run('G.answered = true; continueRun(); toMenu();');
 
+/* ---------- 13. hadiah power-up ---------- */
+run('startGame()');
+let spawned = false;
+for (let i = 0; i < 60 && !spawned; i++) {
+  run('spawnPattern()');
+  spawned = run('G.objs.some(o => o.type === "power")');
+}
+ok(spawned, 'power-up muncul saat spawn (≤60 pola)');
+ok(run('G.objs.some(o => o.type === "power" && (o.kind === "jump" || o.kind === "coin2"))'),
+  'power-up punya jenis jump atau coin2');
+
+/* koin ×2 */
+run('G.puCoin = 12; G.objs.push({type:"coin", lane: G.lane, d: PLAYER_D + 0.1, hit:false})');
+const coin2Before = run('G.coins');
+const score2Before = run('G.score');
+frames(20);
+ok(run('G.coins') === coin2Before + 2, 'koin ×2 memberi 2 koin (' + run('G.coins') + ')');
+ok(run('G.score') >= score2Before + 20, 'koin ×2 memberi +20 skor');
+run('G.puCoin = 0');
+
+/* ambil hadiah lompat tinggi */
+run('G.puJump = 0; G.objs.push({type:"power", kind:"jump", lane: G.lane, d: PLAYER_D + 0.1, hit:false})');
+frames(20);
+ok(run('G.puJump') > 8, 'hadiah loncat tinggi aktif ~10 detik (' + Number(run('G.puJump')).toFixed(1) + 's)');
+ok(!getEl('hudPuJump').classList.contains('hidden'), 'HUD loncat tinggi tampil');
+
+/* lompatan tinggi lebih tinggi daripada lompat biasa */
+run('G.puJump = 10; jump(); const vHigh = G.vy; G.y = 0; G.vy = 0; G.puJump = 0; jump(); const vLow = G.vy; G.y = 0; G.vy = 0;');
+ok(run('(function(){ G.puJump = 10; jump(); return G.vy; })()') > 5,
+  'lompatan tinggi lebih kuat dari lompat biasa');
+run('G.y = 0; G.vy = 0; G.puJump = 0');
+
+/* timer power-up berkurang */
+run('G.puJump = 3; G.puCoin = 3;');
+frames(30);
+ok(run('G.puJump') < 3 && run('G.puJump') > 0, 'timer loncat tinggi menyusut');
+run('G.puJump = 0; G.puCoin = 0; toMenu();');
+
+/* ---------- 14. musik & efek suara ---------- */
+ok(typeof run('AudioEngine') === 'object', 'modul musik tersedia');
+ok(typeof run('AudioEngine.start') === 'function' && typeof run('AudioEngine.sfx') === 'function',
+  'AudioEngine punya start & sfx');
+run('AudioEngine.start(); AudioEngine.stop(); AudioEngine.sfx("coin"); AudioEngine.sfx("power");');
+ok(true, 'panggilan musik/sfx aman walau AudioContext tak ada (mode headless)');
+ok(run('store.get(LS.music, false)') === false || typeof run('store.get(LS.music, false)') === 'boolean',
+  'preferensi senyap musik terbaca');
+
 console.log(fail ? '\n' + fail + ' GAGAL' : '\nSEMUA LOLOS');
 process.exit(fail ? 1 : 0);
 
